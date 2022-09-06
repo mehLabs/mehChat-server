@@ -8,6 +8,7 @@ app.use(cors({
 const http = require('http');
 const server = http.createServer(app);
 const port = 7000;
+let last20Msgs = [];
 let clients = [];
 
 const {Server} = require('socket.io');
@@ -20,10 +21,34 @@ const io = new Server(server,{
 
 const createNewClient = (id) => {
     if (clients.length === 0 || !clients.includes(id)){
-        clients.push(id);
+        clients.push({
+            id: id,
+            name: null
+        });
         pushed = true;
     }
     return id;
+}
+
+const getAlias = (id) => {
+    for (let i = 0; i < clients.length; i++) {
+        const client = clients[i];
+        if (client.id === id){
+            return client.name;
+            break;
+        }
+        
+    }
+}
+
+const newMsg = (msg) => {
+    console.log("Mensaje: "+msg.msg)
+    last20Msgs.push(msg);
+    if (last20Msgs.length >= 20){
+        last20Msgs.shift();
+    }
+    io.emit("chat",msg)
+
 }
 
 
@@ -36,7 +61,8 @@ let interval;
 io.on('connection', (socket) => {
 
 
-    io.to(socket.id).emit("id",createNewClient(socket.id))
+    io.to(socket.id).emit("id",createNewClient(socket.id));
+    io.to(socket.id).emit("lastMsgs",last20Msgs);
     console.log(`Un usuario se ha conectado. Tenemos ${clients.length} clientes conectados.`);
     if (interval) {
         clearInterval(interval);
@@ -44,19 +70,71 @@ io.on('connection', (socket) => {
     interval = setInterval( () => getApiAndEmit(socket),1000);
 
     socket.on('chat', (msg) => {
-        console.log("Mensaje: "+msg.msg)
-        io.emit("chat",msg)
+        if (msg.msg === "/reset"){
+            last20Msgs = [];
+        }else{
+            newMsg(msg);
+        }
+        
     })
+
+    //Cambio o seteo de nombre
+    socket.on('changeName', (name) => {
+        let alias = socket.id;
+        for (let i = 0; i < clients.length; i++) {
+            if (socket.id === clients[i].id){
+                alias = clients[i].name;
+                clients[i].name =name;
+                break
+            }
+            
+        }
+        //Avisar del cambio de nombre
+        console.log("El usuario "+alias+" se ha cambiado el alias a: "+name)
+        if (alias !== null){
+            const msg = {
+                msg: "El usuario "+alias+" se ha cambiado el alias a: "+name,
+                date: new Date(),
+                name: "Servidor",
+                id: null
+            }
+            
+            newMsg(msg);
+        }else{
+            let msg = {
+                msg: name+" se ha conectado.",
+                date: new Date(),
+                name: "Servidor",
+                id:null
+            }
+            
+            newMsg(msg);
+        }
+        io.emit("userEvent",clients)
+    })
+
+
     socket.on("disconnect", () => {
+        //Quitar usuario de la lista del servidor
+        const alias = getAlias(socket.id);
         console.log(`Un usuario se ha desconectado. Tenemos ${clients.length} clientes conectados.`);
         clearInterval(interval);
         for (let i=0;i<clients.length;i++){
-            let clientId = clients[i];
+            let clientId = clients[i].id;
             if (socket.id === clientId){
                 clients.splice(i,1);
                 break;
             }
         }
+        //Avisar a los usuarios de la desconexión de tal usuario
+        let msg = {
+            user: alias,
+            msg: alias+" se ha desconectado.",
+            date: new Date(),
+            id: null
+        }
+        newMsg(msg);
+        io.emit("userEvent",clients)
     })
 })
 
