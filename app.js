@@ -7,7 +7,7 @@ app.use(cors({
 
 const http = require('http');
 const server = http.createServer(app);
-const port = 80;
+const port = 443;
 let last20Msgs = [];
 let clients = [];
 
